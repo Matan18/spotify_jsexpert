@@ -1,7 +1,7 @@
 import fs from 'fs'
 import fsPromises from "fs/promises";
 import { randomUUID } from 'crypto';
-import { join, extname } from 'path';
+import path, { join, extname } from 'path';
 import { PassThrough, Writable } from 'stream'
 import config from './config.js';
 import Throttle from "throttle";
@@ -12,9 +12,17 @@ import streamsPromises from 'stream/promises';
 
 const {
   dir: {
-    publicDirectory
+    publicDirectory,
+    fxDirectory,
   },
-  contants: { fallbackBitRate, englishConversation, bitRateDivisor }
+  contants: {
+    fallbackBitRate,
+    englishConversation,
+    bitRateDivisor,
+    audioMediaType,
+    songVolume,
+    fxVolume
+  }
 } = config
 export class Service {
   constructor() {
@@ -127,5 +135,75 @@ export class Service {
       stream: this.createFileStream(name),
       type
     }
+  }
+
+  async readFxByName(fxName) {
+    const songs = await fsPromises.readdir(fxDirectory);
+    const chosenSong = songs
+      .find(filename => filename.toLowerCase().includes(fxName));
+    if (!chosenSong)
+      return Promise.reject(`the song ${fxName} wasn't found`)
+    return join(fxDirectory, chosenSong);
+  }
+
+
+  appendFxStream(fx) {
+    const throttleTransformable = new Throttle(this.currentBitRate);
+    streamsPromises.pipeline(
+      throttleTransformable,
+      this.broadCast()
+    )
+
+    const unpipe = () => {
+      const transformStream = this.mergeAudioStreams(fx, this.currentReadable);
+      this.throttleTransform = throttleTransformable;
+      this.currentReadable = transformStream;
+
+      this.currentReadable.removeListener('unpip', unpipe);
+
+      streamsPromises.pipeline(
+        transformStream,
+        throttleTransformable
+      )
+    }
+
+    this.throttleTransform.on('unpipe', unpipe);
+
+    this.throttleTransform.pause();
+
+    this.currentReadable.unpipe(this.throttleTransform);
+  }
+
+  mergeAudioStreams(song, readable) {
+    const transformStream = PassThrough();
+    const args = [
+      '-t', audioMediaType,
+      '-v', songVolume,
+      '-m', '-',
+      '-t', audioMediaType,
+      '-v', fxVolume,
+      song,
+      '-t', audioMediaType,
+      '-'
+    ]
+
+    const {
+      stdin,
+      stdout
+    } = this._executeSoxCommand(args);
+
+    streamsPromises.pipeline(
+      readable,
+      stdin
+    )
+    // .catch(error => logger.error(`error on sending stream to sox: ${error}`));
+
+    streamsPromises.pipeline(
+      stdout,
+      transformStream
+    )
+    // .catch(error => logger.error(`error on receiving stream to sox: ${error}`));
+
+    return transformStream;
   }
 }
