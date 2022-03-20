@@ -1,0 +1,16 @@
+sox \
+  --i \
+  -B \
+  "audio/songs/conversation.mp3"
+
+// concatenar dois audios
+
+sox \
+  -t mp3 \
+  -v 0.99 \
+  -m "audio/songs/conversation.mp3" \
+  -t mp3 \
+  -v 0.99 \
+  "audio/fx/Fart - Gaming Sound Effect (HD) (128 kbps).mp3" \
+  -t mp3 \
+  "output.mp3"
